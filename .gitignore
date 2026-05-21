@@ -1,0 +1,29 @@
+# 编译输出
+build/
+*.o
+*.elf
+*.hex
+*.bin
+*.map
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# PlatformIO
+.pio/
+
+# Keil
+MDK-ARM/
+
+# 系统
+.DS_Store
+Thumbs.db
