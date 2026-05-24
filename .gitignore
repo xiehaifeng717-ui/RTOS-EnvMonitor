@@ -1,0 +1,22 @@
+# 编译输出
+build/
+cmake-build-*/
+*.o
+*.obj
+*.elf
+*.hex
+*.bin
+*.map
+*.su
+*.stackusage
+
+# IDE
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db

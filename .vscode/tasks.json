@@ -1,0 +1,27 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "编译 (Build only)",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--build", "--preset", "Debug"],
+            "problemMatcher": []
+        },
+        {
+            "label": "一键烧录 (Build + Flash)",
+            "type": "process",
+            "command": "openocd",
+            "args": [
+                "-s", "E:\\Program Files\\openocd\\xpack-openocd-0.12.0-7\\openocd\\scripts",
+                "-f", "fire_dap.cfg",
+                "-c", "program build/Debug/project_1.elf verify reset exit"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": ["编译 (Build only)"]
+        }
+    ]
+}
