@@ -5,36 +5,47 @@
 [![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-green)](https://www.freertos.org/)
 [![IoT](https://img.shields.io/badge/IoT-OneNET-orange)](https://open.iot.10086.cn/)
 
-基于 **STM32F103C8T6 + FreeRTOS** 的物联网多任务环境监测终端。采集温湿度、光照等多维环境参数，通过 ESP32C6 WiFi MQTT 上报至 OneNET 云平台，支持本地按键控制和云端远程管理。
+基于 **STM32F103C8T6 + FreeRTOS** 的物联网多任务环境监测终端。采集温湿度、光照等多维环境参数，通过 ESP32C6 WiFi MQTT 上报至 OneNET 云平台，**并支持云端远程下发指令控制设备**（LED、光照阈值等），实现完整的 MQTT 双向通信。
 
 ---
 
 ## 项目特色
 
 - **全链路闭环**：`传感器 → STM32(FreeRTOS) → UART → ESP32 → WiFi → MQTT → OneNET 云端`
+- **双向数据通信**：支持 MQTT 属性上报（设备→云端）和属性设置（云端→设备）全双工通信
 - **工业级分层架构**：BSP 驱动层 → Service 服务层 → Task 任务层 → App 数据中心，硬件与业务高度解耦
 - **双芯片通信**：STM32(数据采集控制) + ESP32(WiFi/MQTT)，真实产品常见设计
-- **5参数实时上云**：温度、湿度、光照、蓝灯状态、绿灯状态，~1s 刷新至 OneNET 物模型
+- **6参数实时上云**：温度、湿度、光照、蓝灯状态、绿灯状态、光照阈值，~1s 刷新至 OneNET 物模型
+- **远程可调阈值**：光照阈值支持运行时远程调整，无需重新烧录固件
 
 ---
 
 ## 数据流总览
 
+### 上行（采集上报）
 ```
 DHT11(温湿度) ──┐
-                ├──→ SensorTask (AboveNormal, 1s)
-光照传感器(ADC) ─┘         │
-                    ├──→ sensor_to_oled_Queue ──→ OledTask ──→ OLED 显示
-                    ├──→ sensor_to_uart_Queue ──→ UartTask ──→ USART1 打印
-                    └──→ uart_to_esp32_Queue ──→ ESP32Task
-                                                     │
+                ├──→ SensorTask → 队列分发 ──→ ESP32Task ──→ USART2 ──→ ESP32C6
+光照传感器(ADC) ─┘                                      ↑                    │
+                                          LightTask(50ms写入共享变量)   WiFi → MQTT
+                                                                              │
+                                                                     OneNET 云端 ✅
+```
+
+### 下行（远程控制）
+```
+OneNET 应用模拟器 ──→ MQTT property/set ──→ ESP32C6
+                                                │
+                                              UART1
+                                                │
                                           USART2(PA2/PA3)
-                                                     │
-                                          ESP32C6 UART1(GPIO6/GPIO7)
-                                                     │
-                                            WiFi → MQTT
-                                                     │
-                                            OneNET 云端 ✅
+                                                │
+                                        ESP32C6_Driver_GetCommand()
+                                                │
+                                        Command_Service_Process()
+                                           ├── GREEN:1/0 → 绿灯控制
+                                           ├── BLUE:1/0  → 蓝灯控制
+                                           └── THRESH:xxx → 光照阈值调整
 ```
 
 ---
@@ -77,16 +88,17 @@ DHT11(温湿度) ──┐
 | 任务 | 优先级 | 栈大小 | 周期 | 功能 |
 |:---|:---:|:---:|:---:|:---|
 | **SensorTask** | AboveNormal(28) | 1KB | ~1s | DHT11 温湿度采集 + 数据分发到各队列 |
-| **LightSensorTask** | Normal(24) | 1KB | 50ms | ADC 光照采样 + 写入共享变量 |
+| **LightSensorTask** | Normal(24) | 1KB | 50ms | ADC 光照采样 + 写入共享变量 + 蓝灯自动控制 |
 | **UartTask** | Normal(24) | 1KB | — | 串口数据打印 |
 | **oledTask** | Low(8) | 2KB | — | OLED 屏幕刷新 |
-| **esp32Task** | Low(8) | 1KB | — | 队列 → USART2 → ESP32 发送 |
+| **esp32Task** | Low(8) | 1KB | 500ms轮询 | 从队列取数据→USART2→ESP32 发送；同时轮询下行命令 |
 
 ## IPC 通信机制
 
 - **3个消息队列**：`sensor_to_uart_Queue` / `sensor_to_oled_Queue` / `uart_to_esp32_Queue`
 - **1个互斥锁**：`printMutex` 保护多任务并发串口打印
 - **1个全局共享变量**：`g_sensor_share`（LightTask 50ms写入 → SensorTask 1s读取后统一发出）
+- **1个命令缓冲区**：ESP32 下行命令通过 `ESP32C6_Driver_GetCommand()` 非阻塞读取，`Command_Service_Process()` 解析执行
 
 ---
 
@@ -125,7 +137,7 @@ GND            ────→  GND
 ├── User/
 │   ├── App/                应用层 (app_data.h/c)
 │   ├── Bsp/                硬件驱动层 (bsp_dht11/bsp_oled/bsp_light/bsp_uart)
-│   ├── Service/            服务层 (service_esp32c6/service_light)
+│   ├── Service/            服务层 (service_esp32c6/service_light/service_command)
 │   ├── Tasks/              任务层 (task_dht11/task_uart/task_oled/task_esp32c6/task_light)
 │   └── Common/             通用工具 (led/button/delay)
 ├── ESP32_Src/              ESP32C6 源码 (PlatformIO 独立工程)
@@ -149,11 +161,12 @@ GND            ────→  GND
 | PA0 不能配 EXTI 中断 | PA0 是 WKUP 唤醒引脚，特殊行为 | 换 PA4，改为轮询 + 20ms 防抖 |
 | CubeMX 重生丢变量 | CubeMX 重写 freertos.c 删除了手写代码 | 变量定义移到 app_data.c 中 |
 | ESP32 数据粘包 | uart_read_bytes 一次性读 256 字节 | 改为逐字节读取 + `\n` 换行判定 |
-
----
+| **OneNET 上线即掉线** | MQTT 用户名格式错误 + 持久会话冲突 | 用户名用纯产品ID；`disable_clean_session` 必须关掉 |
+| **属性设置超时 10411** | ESP32 处理指令后未回复 set_reply | 添加 `property/set_reply` 回复，id 必须与原请求一致 |
 
 ## 版本历史
 
+- **v2.5** (2026-05-27) — 新增 MQTT 下行控制（OneNET 属性设置→STM32 命令转发，支持远程 LED 控制 + 光照阈值调整），修复 OneNET 连接配置问题
 - **v2.0** (2026-05-24) — 新增光照传感器(ADC)、按键、LED 控制、MQTT 上云扩展（5参数）
 - **v1.0** (2026-04-23) — 初始搭建：DHT11 + OLED + 3任务 + 消息队列 IPC
 
