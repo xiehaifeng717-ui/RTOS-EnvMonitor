@@ -57,6 +57,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         User/Service/service_esp32c6.h
         User/Service/service_light.c
         User/Service/service_light.h
+        User/Service/service_command.c
+        User/Service/service_command.h
         User/Tasks/task_dht11.c
         User/Tasks/task_dht11.h
         User/Tasks/task_uart.c

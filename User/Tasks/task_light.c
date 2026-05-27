@@ -13,9 +13,9 @@
 #include "cmsis_os2.h"
 #include <stdio.h>
 
-/* 光照阈值：ADC高于此值判定为天黑，自动开灯 */
-/* 当前环境实测：3500（老梅调好的，后面不要改回来） */
-#define LIGHT_THRESHOLD     3500
+/* 光照阈值变量：ADC高于此值判定为天黑，自动开灯 */
+/* 初始值3500（老梅调好的），可通过 MQTT 下行远程调整 */
+uint16_t g_light_threshold = 3500;
 
 /**
  * @brief 光照传感器任务函数
@@ -54,7 +54,7 @@ void light_sensor_task(void *argument) {
         /* 读取光照传感器数据 */
         if (Light_Service_ReadSample(&light_sample)) {
             /* 蓝灯自动控制：天黑开灯，天亮关灯 */
-            if (light_sample.adc_raw > LIGHT_THRESHOLD) {
+            if (light_sample.adc_raw > g_light_threshold) {
                 LED_Blue_On();
             } else {
                 LED_Blue_Off();
@@ -62,14 +62,15 @@ void light_sensor_task(void *argument) {
 
             /* 写入共享数据区（SensorTask每秒读取后统一发送） */
             g_sensor_share.light_adc = light_sample.adc_raw;
-            g_sensor_share.blue_led = (light_sample.adc_raw > LIGHT_THRESHOLD) ? 1 : 0;
+            g_sensor_share.blue_led = (light_sample.adc_raw > g_light_threshold) ? 1 : 0;
 
             /* 每20次（约1秒）串口打印一次光照值，与DHT11频率对齐 */
             print_counter++;
             if (print_counter >= 20) {
                 print_counter = 0;
                 osMutexAcquire(printMutex, osWaitForever);
-                printf("Light ADC: %d\r\n", light_sample.adc_raw);
+                printf("Light ADC: %d (threshold: %d)\r\n",
+                       light_sample.adc_raw, g_light_threshold);
                 osMutexRelease(printMutex);
             }
         }

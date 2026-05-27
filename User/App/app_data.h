@@ -49,4 +49,7 @@ extern osMutexId_t printMutex;                   /* 打印互斥锁 */
 /* 多任务共享数据区：LightTask写入，SensorTask读取后统一发队列 */
 extern app_data_t g_sensor_share;
 
+/* 光照阈值（LightTask自动控制用，可通过MQTT下行远程调整） */
+extern uint16_t g_light_threshold;
+
 #endif //_APP_DATA_H_
