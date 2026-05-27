@@ -7,6 +7,7 @@
 
 #include "task_light.h"
 #include "service_light.h"
+#include "service_config.h"
 #include "led.h"
 #include "button.h"
 #include "app_data.h"
@@ -27,6 +28,13 @@ void light_sensor_task(void *argument) {
     LED_Blue_Init();
     LED_Green_Init();
     Button_Init();
+
+    /* 从 Flash 加载持久化配置 */
+    config_t cfg;
+    if (Config_Service_Load(&cfg)) {
+        g_light_threshold = cfg.light_threshold;
+        printf("已恢复阈值: %d\r\n", g_light_threshold);
+    }
 
     /* 打印任务启动信息 */
     osMutexAcquire(printMutex, osWaitForever);

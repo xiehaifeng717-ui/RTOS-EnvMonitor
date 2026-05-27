@@ -6,6 +6,7 @@
  */
 
 #include "service_command.h"
+#include "service_config.h"
 #include "led.h"
 #include "app_data.h"
 #include <stdio.h>
@@ -57,6 +58,10 @@ void Command_Service_Process(const char *cmd) {
         if (val >= 500 && val <= 4000) {
             g_light_threshold = (uint16_t)val;
             printf("[CMD] Light threshold set to %d\r\n", g_light_threshold);
+
+            /* 持久化到 Flash */
+            config_t cfg = { .light_threshold = g_light_threshold };
+            Config_Service_Save(&cfg);
         } else {
             printf("[CMD] Invalid threshold: %d (500~4000)\r\n", val);
         }
