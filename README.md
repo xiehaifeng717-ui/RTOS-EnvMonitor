@@ -1,78 +1,189 @@
-# RTOS-EnvMonitor: 基于 FreeRTOS 的多任务温湿度实时监测系统
+# RTOS-EnvMonitor：基于 FreeRTOS 的物联网多任务环境监测终端
 
-这是一个基于 **STM32F103C8T6** 的工业级嵌入式开发实践项目。项目采用 **FreeRTOS** 实现多任务并行处理，通过 **VS Code + CMake + OpenOCD** 构建了完整的现代化开发、编译与调试全流程。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![MCU](https://img.shields.io/badge/MCU-STM32F103C8T6-blue)](https://www.st.com/)
+[![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-green)](https://www.freertos.org/)
+[![IoT](https://img.shields.io/badge/IoT-OneNET-orange)](https://open.iot.10086.cn/)
 
----
-
-## 🚀 项目亮点
-
--   **工业级软件架构**：严格遵循分层设计理念（BSP 驱动层 -> Service 服务层 -> Task 任务层 -> App 数据中心），实现硬件与业务逻辑的高度解耦。
--   **高并发任务调度**：利用 FreeRTOS 机制处理传感器采样、OLED 显示与串口通信，通过 **消息队列 (Queue)** 传递数据，**互斥锁 (Mutex)** 保护共享资源（如串口打印）。
--   **全流程 VS Code 集成**：摒弃传统 IDE，通过 `tasks.json` 与 OpenOCD 脚本实现“一键编译+烧录+校验”流程，支持源码级调试。
--   **精准时序控制**：通过硬件定时器（TIM2）实现微秒级延迟算法，确保单总线协议（DHT11）数据读取的稳定性。
+基于 **STM32F103C8T6 + FreeRTOS** 的物联网多任务环境监测终端。采集温湿度、光照等多维环境参数，通过 ESP32C6 WiFi MQTT 上报至 OneNET 云平台，支持本地按键控制和云端远程管理。
 
 ---
 
-## 🛠 技术栈
+## 项目特色
 
--   **核心硬件**：STM32F103C8T6 (ARM Cortex-M3)
--   **实时操作系统**：FreeRTOS (CMSIS-RTOS V2 接口)
--   **外设协议**：I2C (OLED)、Single-Wire (DHT11)、USART (Debug)
--   **开发环境**：VS Code + CMake + arm-none-eabi-gcc
--   **烧录工具**：OpenOCD + 野火 DAP 烧录器
-
----
-
-## 📂 项目结构
-
-| 目录 | 功能描述 |
-| :--- | :--- |
-| **Core/** | STM32CubeMX 生成的硬件初始化代码 (HAL库) |
-| **User/App/** | 应用层：全局变量定义、跨任务共享数据结构 |
-| **User/Bsp/** | 硬件驱动层：封装外设底层细节 (DHT11, OLED I2C) |
-| **User/Service/** | 服务层：业务逻辑处理、数据转换、UI 页面调度 |
-| **User/Tasks/** | 任务层：FreeRTOS 任务函数入口 |
-| **User/Common/** | 通用工具：微秒级延时实现、字模库 |
+- **全链路闭环**：`传感器 → STM32(FreeRTOS) → UART → ESP32 → WiFi → MQTT → OneNET 云端`
+- **工业级分层架构**：BSP 驱动层 → Service 服务层 → Task 任务层 → App 数据中心，硬件与业务高度解耦
+- **双芯片通信**：STM32(数据采集控制) + ESP32(WiFi/MQTT)，真实产品常见设计
+- **5参数实时上云**：温度、湿度、光照、蓝灯状态、绿灯状态，~1s 刷新至 OneNET 物模型
 
 ---
 
-## 核心设计思想
+## 数据流总览
 
-### 1. 软件架构分层 (Decoupling)
-本项目将外设操作与业务逻辑彻底分离：
--   **Bsp 层**：只负责基础的位带操作和字节读写。
--   **Service 层**：负责逻辑组装（如将 DHT11 的 40-bit 原始数据解析为浮点数并校验）。
--   **Task 层**：仅负责维护 FreeRTOS 任务周期和资源调度。
-
-### 2. 线程安全与通信 (IPC)
-项目采用 **生产者-消费者模型**，规避了直接访问全局变量导致的资源竞争：
--   **数据分发**：`SensorTask` 采集数据后，通过 `osMessageQueuePut` 将副本发送至 OLED 和 UART 任务。
--   **串口互斥**：通过 `printMutex` 确保在多任务并发打印时，日志输出不会相互串流。
-
-### 3. 精准时序实现
-针对 DHT11 需要微秒级精准控制的特性，本项目弃用了不稳定的软件循环延时，改用 **TIM2 硬件定时器计数器** 实现 `delay_us` 函数，大幅提升了传感器在复杂环境下的读取成功率。
-
----
-
-## 🔌 硬件连接
-
-| 模块 | 引脚 | STM32 引脚 | 备注 |
-| :--- | :--- | :--- | :--- |
-| **DHT11** | DATA | PB12 | 单总线协议 |
-| **OLED** | SCL/SDA | PB6 / PB7 | I2C1 硬件模式 |
-| **UART1** | TX/RX | PA9 / PA10 | 系统调试日志输出 |
-| **DAP Link** | SWDIO/SWCLK| PA13 / PA14 | 烧录与在线调试 |
+```
+DHT11(温湿度) ──┐
+                ├──→ SensorTask (AboveNormal, 1s)
+光照传感器(ADC) ─┘         │
+                    ├──→ sensor_to_oled_Queue ──→ OledTask ──→ OLED 显示
+                    ├──→ sensor_to_uart_Queue ──→ UartTask ──→ USART1 打印
+                    └──→ uart_to_esp32_Queue ──→ ESP32Task
+                                                     │
+                                          USART2(PA2/PA3)
+                                                     │
+                                          ESP32C6 UART1(GPIO6/GPIO7)
+                                                     │
+                                            WiFi → MQTT
+                                                     │
+                                            OneNET 云端 ✅
+```
 
 ---
 
-## 🛠️ 开发与构建流程
+## 技术栈
+
+| 维度 | 技术选型 |
+|:---|:---|
+| **MCU** | STM32F103C8T6 (ARM Cortex-M3, 72MHz) |
+| **RTOS** | FreeRTOS (CMSIS-RTOS V2 API) |
+| **通信芯片** | ESP32C6 (WiFi + MQTT) |
+| **云平台** | OneNET（中国移动物联网平台，物模型+OneJSON） |
+| **通信协议** | UART (STM32↔ESP32) / MQTT (ESP32↔OneNET) |
+| **外设** | DHT11(温湿度) / OLED 128×64(I2C) / 光敏电阻(ADC) / 按键(GPIO) / LED(GPIO) |
+| **工具链** | VS Code + CMake + Ninja + arm-none-eabi-gcc + OpenOCD + DAP 烧录器 |
+| **ESP32 工具链** | PlatformIO + ESP-IDF |
+
+---
+
+## 软件架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    App 数据中心                          │
+│     (app_data.h/c) 全局数据结构 + 队列/互斥锁声明         │
+├─────────────────────────────────────────────────────────┤
+│               Task 任务层 (task_*.c/h)                   │
+│   SensorTask / UartTask / OledTask / ESP32Task / Light  │
+├─────────────────────────────────────────────────────────┤
+│             Service 服务层 (service_*.c/h)               │
+│          业务逻辑、数据格式化、页面调度                    │
+├─────────────────────────────────────────────────────────┤
+│             BSP 驱动层 (bsp_*.c/h)                      │
+│     DHT11单总线 / OLED_I2C / USART / ADC / LED / 按键   │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 任务设计
+
+| 任务 | 优先级 | 栈大小 | 周期 | 功能 |
+|:---|:---:|:---:|:---:|:---|
+| **SensorTask** | AboveNormal(28) | 1KB | ~1s | DHT11 温湿度采集 + 数据分发到各队列 |
+| **LightSensorTask** | Normal(24) | 1KB | 50ms | ADC 光照采样 + 写入共享变量 |
+| **UartTask** | Normal(24) | 1KB | — | 串口数据打印 |
+| **oledTask** | Low(8) | 2KB | — | OLED 屏幕刷新 |
+| **esp32Task** | Low(8) | 1KB | — | 队列 → USART2 → ESP32 发送 |
+
+## IPC 通信机制
+
+- **3个消息队列**：`sensor_to_uart_Queue` / `sensor_to_oled_Queue` / `uart_to_esp32_Queue`
+- **1个互斥锁**：`printMutex` 保护多任务并发串口打印
+- **1个全局共享变量**：`g_sensor_share`（LightTask 50ms写入 → SensorTask 1s读取后统一发出）
+
+---
+
+## 外设引脚分配
+
+| 外设 | 引脚 | 说明 |
+|:---|:---|:---|
+| DHT11 | PB12 | 单总线温湿度传感器 |
+| OLED | PB6(SCL) / PB7(SDA) | I2C1, SSD1306 128×64 |
+| 光敏电阻 | PA1 | ADC1_IN1, 12位精度 |
+| 蓝灯 | PB1 | 光照自动控制（>3500亮） |
+| 绿灯 | PB0 | 按键手动切换 |
+| 按键 | PA4 | 轮询 + 20ms 防抖 |
+| USART1 | PA9(TX) / PA10(RX) | 调试日志 |
+| USART2 | PA2(TX) / PA3(RX) | ↔ ESP32C6 UART1 |
+
+### STM32 ↔ ESP32 接线
+
+```
+STM32 PA2(TX)  ────→  ESP32 GPIO6 (UART1_RX)
+STM32 PA3(RX)  ←────  ESP32 GPIO7 (UART1_TX)
+GND            ────→  GND
+```
+
+> 采用 ESP32 UART1(GPIO6/GPIO7) 而非 UART0，避免与烧录口冲突，烧录和通信互不干扰。
+
+---
+
+## 项目结构
+
+```
+├── Core/                    STM32CubeMX 生成代码 (HAL库)
+│   ├── Inc/                头文件
+│   └── Src/                初始化代码
+├── Drivers/                 CMSIS / HAL 驱动库
+├── User/
+│   ├── App/                应用层 (app_data.h/c)
+│   ├── Bsp/                硬件驱动层 (bsp_dht11/bsp_oled/bsp_light/bsp_uart)
+│   ├── Service/            服务层 (service_esp32c6/service_light)
+│   ├── Tasks/              任务层 (task_dht11/task_uart/task_oled/task_esp32c6/task_light)
+│   └── Common/             通用工具 (led/button/delay)
+├── ESP32_Src/              ESP32C6 源码 (PlatformIO 独立工程)
+│   ├── main.c              WiFi → MQTT → UART 三步初始化
+│   ├── wifi_manager.c/h    WiFi 管理模块
+│   └── mqtt_manager.c/h    MQTT 管理模块
+├── CMakeLists.txt
+├── CMakePresets.json
+└── README.md
+```
+
+---
+
+## 踩坑与解决（面试常问）
+
+| 问题 | 根因 | 解决方案 |
+|:---|:---|:---|
+| DHT11 频繁 errorData | LightTask 同级优先级打断微秒级单总线时序 | SensorTask 优先级 Normal → AboveNormal |
+| ESP32 烧录需拔线 | RX/TX 接在 UART0，与烧录口冲突 | 改用 UART1(GPIO6/GPIO7)，烧录通信互不干扰 |
+| OneNET 连不上 code=4 | VPN 劫持 DNS 到假 IP | 关梯子，用官方 Token 工具重新计算 |
+| PA0 不能配 EXTI 中断 | PA0 是 WKUP 唤醒引脚，特殊行为 | 换 PA4，改为轮询 + 20ms 防抖 |
+| CubeMX 重生丢变量 | CubeMX 重写 freertos.c 删除了手写代码 | 变量定义移到 app_data.c 中 |
+| ESP32 数据粘包 | uart_read_bytes 一次性读 256 字节 | 改为逐字节读取 + `\n` 换行判定 |
+
+---
+
+## 版本历史
+
+- **v2.0** (2026-05-24) — 新增光照传感器(ADC)、按键、LED 控制、MQTT 上云扩展（5参数）
+- **v1.0** (2026-04-23) — 初始搭建：DHT11 + OLED + 3任务 + 消息队列 IPC
+
+---
+
+## 本地开发
+
+### 前置条件
+
+- VS Code + CMake + arm-none-eabi-gcc + Ninja
+- OpenOCD + DAP 烧录器
+- PlatformIO（ESP32 开发）
 
 ### 一键烧录
-项目深度集成了 VS Code 的任务系统。按下 `Ctrl+Shift+B` 或点击“一键烧录”任务：
-1. 自动执行 `cmake` 编译生成 `.elf`。
-2. 自动调用 `openocd` 加载 `fire_dap.cfg`。
-3. 执行烧录、校验、并自动复位运行。
+
+按 `Ctrl+Shift+B` 默认执行一键烧录（编译 → 烧录 → 校验 → 复位）。
+
+### ESP32 烧录
+
+```bash
+cd ESP32_Src/
+py -m platformio run --target upload
+```
 
 ---
 
-*Created by 29283 - 2026/04/23*
+## 作者
+
+- **谢海峰** — 南昌航空大学 物联网工程
+- GitHub: [@xiehaifeng717-ui](https://github.com/xiehaifeng717-ui)
+- Email: xiehaifeng717@outlook.com
+
+> 如果这个项目对你有帮助，欢迎 ⭐ 一下！
